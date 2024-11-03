@@ -1,11 +1,15 @@
 /**
  * @file src/platform/linux/wlgrab.cpp
- * @brief todo
+ * @brief Definitions for wlgrab capture.
  */
+#include <thread>
+
 #include "src/platform/common.h"
 
-#include "src/main.h"
+#include "src/logging.h"
 #include "src/video.h"
+
+#include "cuda.h"
 #include "vaapi.h"
 #include "wayland.h"
 
@@ -125,16 +129,21 @@ namespace wl {
     capture(const push_captured_image_cb_t &push_captured_image_cb, const pull_free_image_cb_t &pull_free_image_cb, bool *cursor) override {
       auto next_frame = std::chrono::steady_clock::now();
 
+      sleep_overshoot_logger.reset();
+
       while (true) {
         auto now = std::chrono::steady_clock::now();
 
         if (next_frame > now) {
-          std::this_thread::sleep_for((next_frame - now) / 3 * 2);
+          std::this_thread::sleep_for(next_frame - now);
+          sleep_overshoot_logger.first_point(next_frame);
+          sleep_overshoot_logger.second_point_now_and_log();
         }
-        while (next_frame > now) {
-          now = std::chrono::steady_clock::now();
+
+        next_frame += delay;
+        if (next_frame < now) {  // some major slowdown happened; we couldn't keep up
+          next_frame = now + delay;
         }
-        next_frame = now + delay;
 
         std::shared_ptr<platf::img_t> img_out;
         auto status = snapshot(pull_free_image_cb, img_out, 1000ms, *cursor);
@@ -224,6 +233,12 @@ namespace wl {
       }
 #endif
 
+#ifdef SUNSHINE_BUILD_CUDA
+      if (mem_type == platf::mem_type_e::cuda) {
+        return cuda::make_avcodec_encode_device(width, height, false);
+      }
+#endif
+
       return std::make_unique<platf::avcodec_encode_device_t>();
     }
 
@@ -249,16 +264,21 @@ namespace wl {
     capture(const push_captured_image_cb_t &push_captured_image_cb, const pull_free_image_cb_t &pull_free_image_cb, bool *cursor) override {
       auto next_frame = std::chrono::steady_clock::now();
 
+      sleep_overshoot_logger.reset();
+
       while (true) {
         auto now = std::chrono::steady_clock::now();
 
         if (next_frame > now) {
-          std::this_thread::sleep_for((next_frame - now) / 3 * 2);
+          std::this_thread::sleep_for(next_frame - now);
+          sleep_overshoot_logger.first_point(next_frame);
+          sleep_overshoot_logger.second_point_now_and_log();
         }
-        while (next_frame > now) {
-          now = std::chrono::steady_clock::now();
+
+        next_frame += delay;
+        if (next_frame < now) {  // some major slowdown happened; we couldn't keep up
+          next_frame = now + delay;
         }
-        next_frame = now + delay;
 
         std::shared_ptr<platf::img_t> img_out;
         auto status = snapshot(pull_free_image_cb, img_out, 1000ms, *cursor);
@@ -336,6 +356,12 @@ namespace wl {
       }
 #endif
 
+#ifdef SUNSHINE_BUILD_CUDA
+      if (mem_type == platf::mem_type_e::cuda) {
+        return cuda::make_avcodec_gl_encode_device(width, height, 0, 0);
+      }
+#endif
+
       return std::make_unique<platf::avcodec_encode_device_t>();
     }
 
@@ -358,7 +384,7 @@ namespace platf {
       return nullptr;
     }
 
-    if (hwdevice_type == platf::mem_type_e::vaapi) {
+    if (hwdevice_type == platf::mem_type_e::vaapi || hwdevice_type == platf::mem_type_e::cuda) {
       auto wlr = std::make_shared<wl::wlr_vram_t>();
       if (wlr->init(hwdevice_type, display_name, config)) {
         return nullptr;
@@ -408,14 +434,20 @@ namespace platf {
 
     display.roundtrip();
 
+    BOOST_LOG(info) << "-------- Start of Wayland monitor list --------"sv;
+
     for (int x = 0; x < interface.monitors.size(); ++x) {
       auto monitor = interface.monitors[x].get();
 
       wl::env_width = std::max(wl::env_width, (int) (monitor->viewport.offset_x + monitor->viewport.width));
       wl::env_height = std::max(wl::env_height, (int) (monitor->viewport.offset_y + monitor->viewport.height));
 
+      BOOST_LOG(info) << "Monitor " << x << " is "sv << monitor->name << ": "sv << monitor->description;
+
       display_names.emplace_back(std::to_string(x));
     }
+
+    BOOST_LOG(info) << "--------- End of Wayland monitor list ---------"sv;
 
     return display_names;
   }

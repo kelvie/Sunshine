@@ -1,8 +1,9 @@
 /**
  * @file src/stream.h
- * @brief todo
+ * @brief Declarations for the streaming protocols.
  */
 #pragma once
+#include <utility>
 
 #include <boost/asio.hpp>
 
@@ -34,10 +35,10 @@ namespace stream {
 
   namespace session {
     enum class state_e : int {
-      STOPPED,
-      STOPPING,
-      STARTING,
-      RUNNING,
+      STOPPED,  ///< The session is stopped
+      STOPPING,  ///< The session is stopping
+      STARTING,  ///< The session is starting
+      RUNNING,  ///< The session is running
     };
 
     std::shared_ptr<session_t>

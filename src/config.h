@@ -1,6 +1,6 @@
 /**
  * @file src/config.h
- * @brief todo
+ * @brief Declarations for the configuration of Sunshine.
  */
 #pragma once
 
@@ -21,6 +21,7 @@ namespace config {
     int hevc_mode;
     int av1_mode;
 
+    int min_fps_factor;  // Minimum fps target, determines minimum frame time
     int min_threads;  // Minimum number of threads/slices for CPU encoding
     struct {
       std::string sw_preset;
@@ -44,18 +45,20 @@ namespace config {
     struct {
       std::optional<int> qsv_preset;
       std::optional<int> qsv_cavlc;
+      bool qsv_slow_hevc;
     } qsv;
 
     struct {
-      std::optional<int> amd_quality_h264;
-      std::optional<int> amd_quality_hevc;
-      std::optional<int> amd_quality_av1;
-      std::optional<int> amd_rc_h264;
-      std::optional<int> amd_rc_hevc;
-      std::optional<int> amd_rc_av1;
       std::optional<int> amd_usage_h264;
       std::optional<int> amd_usage_hevc;
       std::optional<int> amd_usage_av1;
+      std::optional<int> amd_rc_h264;
+      std::optional<int> amd_rc_hevc;
+      std::optional<int> amd_rc_av1;
+      std::optional<int> amd_enforce_hrd;
+      std::optional<int> amd_quality_h264;
+      std::optional<int> amd_quality_hevc;
+      std::optional<int> amd_quality_av1;
       std::optional<int> amd_preanalysis;
       std::optional<int> amd_vbaq;
       int amd_coder;
@@ -67,6 +70,10 @@ namespace config {
       int vt_realtime;
       int vt_coder;
     } vt;
+
+    struct {
+      bool strict_rc_buffer;
+    } vaapi;
 
     std::string capture;
     std::string encoder;
@@ -91,9 +98,6 @@ namespace config {
 
     int fec_percentage;
 
-    // max unique instances of video and audio streams
-    int channels;
-
     // Video encryption settings for LAN and WAN streams
     int lan_encryption_mode;
     int wan_encryption_mode;
@@ -112,8 +116,6 @@ namespace config {
     std::string file_state;
 
     std::string external_ip;
-    std::vector<std::string> resolutions;
-    std::vector<int> fps;
   };
 
   struct input_t {
@@ -140,12 +142,12 @@ namespace config {
 
   namespace flag {
     enum flag_e : std::size_t {
-      PIN_STDIN = 0,  // Read PIN from stdin instead of http
-      FRESH_STATE,  // Do not load or save state
-      FORCE_VIDEO_HEADER_REPLACE,  // force replacing headers inside video data
-      UPNP,  // Try Universal Plug 'n Play
-      CONST_PIN,  // Use "universal" pin
-      FLAG_SIZE
+      PIN_STDIN = 0,  ///< Read PIN from stdin instead of http
+      FRESH_STATE,  ///< Do not load or save state
+      FORCE_VIDEO_HEADER_REPLACE,  ///< force replacing headers inside video data
+      UPNP,  ///< Try Universal Plug 'n Play
+      CONST_PIN,  ///< Use "universal" pin
+      FLAG_SIZE  ///< Number of flags
     };
   }
 
@@ -159,6 +161,7 @@ namespace config {
     bool elevated;
   };
   struct sunshine_t {
+    std::string locale;
     int min_log_level;
     std::bitset<flag::FLAG_SIZE> flags;
     std::string credentials_file;
@@ -179,7 +182,7 @@ namespace config {
     std::string address_family;
 
     std::string log_file;
-
+    bool notify_pre_releases;
     std::vector<prep_cmd_t> prep_cmds;
   };
 

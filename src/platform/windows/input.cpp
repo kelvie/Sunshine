@@ -1,18 +1,20 @@
 /**
  * @file src/platform/windows/input.cpp
- * @brief todo
+ * @brief Definitions for input handling on Windows.
  */
 #define WINVER 0x0A00
 #include <windows.h>
 
 #include <cmath>
+#include <thread>
 
 #include <ViGEm/Client.h>
 
 #include "keylayout.h"
 #include "misc.h"
 #include "src/config.h"
-#include "src/main.h"
+#include "src/globals.h"
+#include "src/logging.h"
 #include "src/platform/common.h"
 
 #ifdef __MINGW32__
@@ -540,6 +542,21 @@ namespace platf {
     send_input(i);
   }
 
+  util::point_t
+  get_mouse_loc(input_t &input) {
+    throw std::runtime_error("not implemented yet, has to pass tests");
+    // TODO: Tests are failing, something wrong here?
+    POINT p;
+    if (!GetCursorPos(&p)) {
+      return util::point_t { 0.0, 0.0 };
+    }
+
+    return util::point_t {
+      (double) p.x,
+      (double) p.y
+    };
+  }
+
   void
   button_mouse(input_t &input, int button, bool release) {
     INPUT i {};
@@ -595,17 +612,21 @@ namespace platf {
   }
 
   void
-  keyboard(input_t &input, uint16_t modcode, bool release, uint8_t flags) {
+  keyboard_update(input_t &input, uint16_t modcode, bool release, uint8_t flags) {
     INPUT i {};
     i.type = INPUT_KEYBOARD;
     auto &ki = i.ki;
 
     // If the client did not normalize this VK code to a US English layout, we can't accurately convert it to a scancode.
-    bool send_scancode = !(flags & SS_KBE_FLAG_NON_NORMALIZED) || config::input.always_send_scancodes;
-
-    if (send_scancode) {
+    // If we're set to always send scancodes, we will use the current keyboard layout to convert to a scancode. This will
+    // assume the client and host have the same keyboard layout, but it's probably better than always using US English.
+    if (!(flags & SS_KBE_FLAG_NON_NORMALIZED)) {
       // Mask off the extended key byte
       ki.wScan = VK_TO_SCANCODE_MAP[modcode & 0xFF];
+    }
+    else if (config::input.always_send_scancodes && modcode != VK_LWIN && modcode != VK_RWIN && modcode != VK_PAUSE) {
+      // For some reason, MapVirtualKey(VK_LWIN, MAPVK_VK_TO_VSC) doesn't seem to work :/
+      ki.wScan = MapVirtualKey(modcode, MAPVK_VK_TO_VSC);
     }
 
     // If we can map this to a scancode, send it as a scancode for maximum game compatibility.
@@ -902,7 +923,7 @@ namespace platf {
    * @param touch The touch event.
    */
   void
-  touch(client_input_t *input, const touch_port_t &touch_port, const touch_input_t &touch) {
+  touch_update(client_input_t *input, const touch_port_t &touch_port, const touch_input_t &touch) {
     auto raw = (client_input_raw_t *) input;
 
     // Bail if we're not running on an OS that supports virtual touch input
@@ -1033,7 +1054,7 @@ namespace platf {
    * @param pen The pen event.
    */
   void
-  pen(client_input_t *input, const touch_port_t &touch_port, const pen_input_t &pen) {
+  pen_update(client_input_t *input, const touch_port_t &touch_port, const pen_input_t &pen) {
     auto raw = (client_input_raw_t *) input;
 
     // Bail if we're not running on an OS that supports virtual pen input
@@ -1180,14 +1201,6 @@ namespace platf {
     }
   }
 
-  /**
-   * @brief Creates a new virtual gamepad.
-   * @param input The global input context.
-   * @param id The gamepad ID.
-   * @param metadata Controller metadata from client (empty if none provided).
-   * @param feedback_queue The queue for posting messages back to the client.
-   * @return 0 on success.
-   */
   int
   alloc_gamepad(input_t &input, const gamepad_id_t &id, const gamepad_arrival_t &metadata, feedback_queue_t feedback_queue) {
     auto raw = (input_raw_t *) input.get();
@@ -1409,7 +1422,7 @@ namespace platf {
   ds4_update_state(gamepad_context_t &gamepad, const gamepad_state_t &gamepad_state) {
     auto &report = gamepad.report.ds4.Report;
 
-    report.wButtons = ds4_buttons(gamepad_state) | ds4_dpad(gamepad_state);
+    report.wButtons = static_cast<uint16_t>(ds4_buttons(gamepad_state)) | static_cast<uint16_t>(ds4_dpad(gamepad_state));
     report.bSpecial = ds4_special_buttons(gamepad_state);
 
     report.bTriggerL = gamepad_state.lt;
@@ -1465,7 +1478,7 @@ namespace platf {
    * @param gamepad_state The gamepad button/axis state sent from the client.
    */
   void
-  gamepad(input_t &input, int nr, const gamepad_state_t &gamepad_state) {
+  gamepad_update(input_t &input, int nr, const gamepad_state_t &gamepad_state) {
     auto vigem = ((input_raw_t *) input.get())->vigem;
 
     // If there is no gamepad support
@@ -1717,16 +1730,34 @@ namespace platf {
     delete input;
   }
 
-  /**
-   * @brief Gets the supported gamepads for this platform backend.
-   * @return Vector of gamepad type strings.
-   */
-  std::vector<std::string_view> &
-  supported_gamepads() {
+  std::vector<supported_gamepad_t> &
+  supported_gamepads(input_t *input) {
+    if (!input) {
+      static std::vector gps {
+        supported_gamepad_t { "auto", true, "" },
+        supported_gamepad_t { "x360", false, "" },
+        supported_gamepad_t { "ds4", false, "" },
+      };
+
+      return gps;
+    }
+
+    auto vigem = ((input_raw_t *) input)->vigem;
+    auto enabled = vigem != nullptr;
+    auto reason = enabled ? "" : "gamepads.vigem-not-available";
+
     // ds4 == ps4
-    static std::vector<std::string_view> gps {
-      "auto"sv, "x360"sv, "ds4"sv, "ps4"sv
+    static std::vector gps {
+      supported_gamepad_t { "auto", true, reason },
+      supported_gamepad_t { "x360", enabled, reason },
+      supported_gamepad_t { "ds4", enabled, reason }
     };
+
+    for (auto &[name, is_enabled, reason_disabled] : gps) {
+      if (!is_enabled) {
+        BOOST_LOG(warning) << "Gamepad " << name << " is disabled due to " << reason_disabled;
+      }
+    }
 
     return gps;
   }

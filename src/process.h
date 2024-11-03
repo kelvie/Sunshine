@@ -1,6 +1,6 @@
 /**
  * @file src/process.h
- * @brief todo
+ * @brief Declarations for the startup and shutdown of the apps started by a streaming Session.
  */
 #pragma once
 
@@ -11,7 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
-#include <boost/process.hpp>
+#include <boost/process/v1.hpp>
 
 #include "config.h"
 #include "platform/common.h"
@@ -68,17 +68,17 @@ namespace proc {
     KITTY_DEFAULT_CONSTR_MOVE_THROW(proc_t)
 
     proc_t(
-      boost::process::environment &&env,
+      boost::process::v1::environment &&env,
       std::vector<ctx_t> &&apps):
         _app_id(0),
         _env(std::move(env)),
         _apps(std::move(apps)) {}
 
     int
-    execute(int app_id, rtsp_stream::launch_session_t launch_session);
+    execute(int app_id, std::shared_ptr<rtsp_stream::launch_session_t> launch_session);
 
     /**
-     * @return _app_id if a process is running, otherwise returns 0
+     * @return `_app_id` if a process is running, otherwise returns `0`
      */
     int
     running();
@@ -99,7 +99,7 @@ namespace proc {
   private:
     int _app_id;
 
-    boost::process::environment _env;
+    boost::process::v1::environment _env;
     std::vector<ctx_t> _apps;
     ctx_t _app;
     std::chrono::steady_clock::time_point _app_launch_time;
@@ -107,8 +107,8 @@ namespace proc {
     // If no command associated with _app_id, yet it's still running
     bool placebo {};
 
-    boost::process::child _process;
-    boost::process::group _process_group;
+    boost::process::v1::child _process;
+    boost::process::v1::group _process_group;
 
     file_t _pipe;
     std::vector<cmd_t>::const_iterator _app_prep_it;
@@ -116,8 +116,8 @@ namespace proc {
   };
 
   /**
-   * Calculate a stable id based on name and image data
-   * @return tuple of id calculated without index (for use if no collision) and one with
+   * @brief Calculate a stable id based on name and image data
+   * @return Tuple of id calculated without index (for use if no collision) and one with.
    */
   std::tuple<std::string, std::string>
   calculate_app_id(const std::string &app_name, std::string app_image_path, int index);
@@ -129,8 +129,21 @@ namespace proc {
   std::optional<proc::proc_t>
   parse(const std::string &file_name);
 
+  /**
+   * @brief Initialize proc functions
+   * @return Unique pointer to `deinit_t` to manage cleanup
+   */
   std::unique_ptr<platf::deinit_t>
   init();
+
+  /**
+   * @brief Terminates all child processes in a process group.
+   * @param proc The child process itself.
+   * @param group The group of all children in the process tree.
+   * @param exit_timeout The timeout to wait for the process group to gracefully exit.
+   */
+  void
+  terminate_process_group(boost::process::v1::child &proc, boost::process::v1::group &group, std::chrono::seconds exit_timeout);
 
   extern proc_t proc;
 }  // namespace proc

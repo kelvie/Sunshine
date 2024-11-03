@@ -1,6 +1,6 @@
 /**
  * @file src/platform/windows/publish.cpp
- * @brief todo
+ * @brief Definitions for Windows mDNS service registration.
  */
 #include <winsock2.h>
 
@@ -13,7 +13,7 @@
 
 #include "misc.h"
 #include "src/config.h"
-#include "src/main.h"
+#include "src/logging.h"
 #include "src/network.h"
 #include "src/nvhttp.h"
 #include "src/platform/common.h"
@@ -37,7 +37,6 @@ constexpr auto DNS_QUERY_RESULTS_VERSION1 = 0x1;
 
 #define SERVICE_DOMAIN "local"
 
-constexpr auto SERVICE_INSTANCE_NAME = SV(SERVICE_NAME "." SERVICE_TYPE "." SERVICE_DOMAIN);
 constexpr auto SERVICE_TYPE_DOMAIN = SV(SERVICE_TYPE "." SERVICE_DOMAIN);
 
 #ifndef __MINGW32__
@@ -107,16 +106,15 @@ namespace platf::publish {
   service(bool enable, PDNS_SERVICE_INSTANCE &existing_instance) {
     auto alarm = safe::make_alarm<PDNS_SERVICE_INSTANCE>();
 
-    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> converter;
-
-    std::wstring name { SERVICE_INSTANCE_NAME.data(), SERVICE_INSTANCE_NAME.size() };
     std::wstring domain { SERVICE_TYPE_DOMAIN.data(), SERVICE_TYPE_DOMAIN.size() };
 
-    auto host = converter.from_bytes(boost::asio::ip::host_name() + ".local");
+    auto hostname = boost::asio::ip::host_name();
+    auto name = from_utf8(net::mdns_instance_name(hostname) + '.') + domain;
+    auto host = from_utf8(hostname + ".local");
 
     DNS_SERVICE_INSTANCE instance {};
     instance.pszInstanceName = name.data();
-    instance.wPort = map_port(nvhttp::PORT_HTTP);
+    instance.wPort = net::map_port(nvhttp::PORT_HTTP);
     instance.pszHostName = host.data();
 
     // Setting these values ensures Windows mDNS answers comply with RFC 1035.

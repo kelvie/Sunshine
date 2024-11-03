@@ -1,17 +1,17 @@
 /**
  * @file src/cbs.cpp
- * @brief todo
+ * @brief Definitions for FFmpeg Coded Bitstream API.
  */
 extern "C" {
-#include <cbs/cbs_h264.h>
-#include <cbs/cbs_h265.h>
-#include <cbs/h264_levels.h>
 #include <libavcodec/avcodec.h>
+#include <libavcodec/cbs_h264.h>
+#include <libavcodec/cbs_h265.h>
+#include <libavcodec/h264_levels.h>
 #include <libavutil/pixdesc.h>
 }
 
 #include "cbs.h"
-#include "main.h"
+#include "logging.h"
 #include "utility.h"
 
 using namespace std::literals;
@@ -217,6 +217,11 @@ namespace cbs {
     };
   }
 
+  /**
+   * This function initializes a Coded Bitstream Context and reads the packet into a Coded Bitstream Fragment.
+   * It then checks if the SPS->VUI (Video Usability Information) is present in the active SPS of the packet.
+   * This is done for both H264 and H265 codecs.
+   */
   bool
   validate_sps(const AVPacket *packet, int codec_id) {
     cbs::ctx_t ctx;

@@ -1,10 +1,9 @@
 /**
  * @file src/confighttp.cpp
- * @brief todo
+ * @brief Definitions for the Web UI Config HTTP server.
  *
  * @todo Authentication, better handling of routes common to nvhttp, cleanup
  */
-
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 
 #include "process.h"
@@ -29,8 +28,10 @@
 #include "config.h"
 #include "confighttp.h"
 #include "crypto.h"
+#include "file_handler.h"
+#include "globals.h"
 #include "httpcommon.h"
-#include "main.h"
+#include "logging.h"
 #include "network.h"
 #include "nvhttp.h"
 #include "platform/common.h"
@@ -52,8 +53,8 @@ namespace confighttp {
   using req_https_t = std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Request>;
 
   enum class op_e {
-    ADD,
-    REMOVE
+    ADD,  ///< Add client
+    REMOVE  ///< Remove client
   };
 
   void
@@ -154,14 +155,16 @@ namespace confighttp {
               << data.str();
   }
 
-  // todo - combine these functions into a single function that accepts the page, i.e "index", "pin", "apps"
+  /**
+   * @todo combine these functions into a single function that accepts the page, i.e "index", "pin", "apps"
+   */
   void
   getIndexPage(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "index.html");
+    std::string content = file_handler::read_file(WEB_DIR "index.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -173,7 +176,7 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "pin.html");
+    std::string content = file_handler::read_file(WEB_DIR "pin.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -185,7 +188,7 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "apps.html");
+    std::string content = file_handler::read_file(WEB_DIR "apps.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     headers.emplace("Access-Control-Allow-Origin", "https://images.igdb.com/");
@@ -198,7 +201,7 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "clients.html");
+    std::string content = file_handler::read_file(WEB_DIR "clients.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -210,7 +213,7 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "config.html");
+    std::string content = file_handler::read_file(WEB_DIR "config.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -222,7 +225,7 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "password.html");
+    std::string content = file_handler::read_file(WEB_DIR "password.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -235,7 +238,7 @@ namespace confighttp {
       send_redirect(response, request, "/");
       return;
     }
-    std::string content = read_file(WEB_DIR "welcome.html");
+    std::string content = file_handler::read_file(WEB_DIR "welcome.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
@@ -247,16 +250,18 @@ namespace confighttp {
 
     print_req(request);
 
-    std::string content = read_file(WEB_DIR "troubleshooting.html");
+    std::string content = file_handler::read_file(WEB_DIR "troubleshooting.html");
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/html; charset=utf-8");
     response->write(content, headers);
   }
 
+  /**
+   * @todo combine function with getSunshineLogoImage and possibly getNodeModules
+   * @todo use mime_types map
+   */
   void
   getFaviconImage(resp_https_t response, req_https_t request) {
-    // todo - combine function with getSunshineLogoImage and possibly getNodeModules
-    // todo - use mime_types map
     print_req(request);
 
     std::ifstream in(WEB_DIR "images/sunshine.ico", std::ios::binary);
@@ -265,10 +270,12 @@ namespace confighttp {
     response->write(SimpleWeb::StatusCode::success_ok, in, headers);
   }
 
+  /**
+   * @todo combine function with getFaviconImage and possibly getNodeModules
+   * @todo use mime_types map
+   */
   void
   getSunshineLogoImage(resp_https_t response, req_https_t request) {
-    // todo - combine function with getFaviconImage and possibly getNodeModules
-    // todo - use mime_types map
     print_req(request);
 
     std::ifstream in(WEB_DIR "images/logo-sunshine-45.png", std::ios::binary);
@@ -317,30 +324,70 @@ namespace confighttp {
     }
   }
 
+  /**
+   * @brief Get the list of available applications.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   getApps(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
 
     print_req(request);
 
-    std::string content = read_file(config::stream.file_apps.c_str());
+    std::string content = file_handler::read_file(config::stream.file_apps.c_str());
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "application/json");
     response->write(content, headers);
   }
 
+  /**
+   * @brief Get the logs from the log file.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   getLogs(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
 
     print_req(request);
 
-    std::string content = read_file(config::sunshine.log_file.c_str());
+    std::string content = file_handler::read_file(config::sunshine.log_file.c_str());
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "text/plain");
     response->write(SimpleWeb::StatusCode::success_ok, content, headers);
   }
 
+  /**
+   * @brief Save an application. If the application already exists, it will be updated, otherwise it will be added.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "name": "Application Name",
+   *   "output": "Log Output Path",
+   *   "cmd": "Command to run the application",
+   *   "index": -1,
+   *   "exclude-global-prep-cmd": false,
+   *   "elevated": false,
+   *   "auto-detach": true,
+   *   "wait-all": true,
+   *   "exit-timeout": 5,
+   *   "prep-cmd": [
+   *     {
+   *       "do": "Command to prepare",
+   *       "undo": "Command to undo preparation",
+   *       "elevated": false
+   *     }
+   *   ],
+   *   "detached": [
+   *     "Detached command"
+   *   ],
+   *   "image-path": "Full path to the application image. Must be a png file.",
+   * }
+   * @endcode
+   */
   void
   saveApp(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -386,18 +433,35 @@ namespace confighttp {
         // Unfortunately Boost PT does not allow to directly edit the array, copy should do the trick
         pt::ptree newApps;
         int i = 0;
-        for (const auto &kv : apps_node) {
+        for (const auto &[k, v] : apps_node) {
           if (i == index) {
             newApps.push_back(std::make_pair("", inputTree));
           }
           else {
-            newApps.push_back(std::make_pair("", kv.second));
+            newApps.push_back(std::make_pair("", v));
           }
           i++;
         }
         fileTree.erase("apps");
         fileTree.push_back(std::make_pair("apps", newApps));
       }
+
+      // Sort the apps array by name
+      std::vector<pt::ptree> apps_vector;
+      for (const auto &[k, v] : fileTree.get_child("apps")) {
+        apps_vector.push_back(v);
+      }
+      std::ranges::sort(apps_vector, [](const pt::ptree &a, const pt::ptree &b) {
+        return a.get<std::string>("name") < b.get<std::string>("name");
+      });
+
+      pt::ptree sorted_apps;
+      for (const auto &app : apps_vector) {
+        sorted_apps.push_back(std::make_pair("", app));
+      }
+      fileTree.erase("apps");
+      fileTree.add_child("apps", sorted_apps);
+
       pt::write_json(config::stream.file_apps, fileTree);
     }
     catch (std::exception &e) {
@@ -412,6 +476,11 @@ namespace confighttp {
     proc::refresh(config::stream.file_apps);
   }
 
+  /**
+   * @brief Delete an application.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   deleteApp(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -440,9 +509,9 @@ namespace confighttp {
         // Unfortunately Boost PT does not allow to directly edit the array, copy should do the trick
         pt::ptree newApps;
         int i = 0;
-        for (const auto &kv : apps_node) {
+        for (const auto &[k, v] : apps_node) {
           if (i++ != index) {
-            newApps.push_back(std::make_pair("", kv.second));
+            newApps.push_back(std::make_pair("", v));
           }
         }
         fileTree.erase("apps");
@@ -461,6 +530,18 @@ namespace confighttp {
     proc::refresh(config::stream.file_apps);
   }
 
+  /**
+   * @brief Upload a cover image.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "key": "igdb_<game_id>",
+   *   "url": "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/<slug>.png",
+   * }
+   * @endcode
+   */
   void
   uploadCover(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -499,9 +580,7 @@ namespace confighttp {
     auto url = inputTree.get("url", "");
 
     const std::string coverdir = platf::appdata().string() + "/covers/";
-    if (!boost::filesystem::exists(coverdir)) {
-      boost::filesystem::create_directories(coverdir);
-    }
+    file_handler::make_directory(coverdir);
 
     std::basic_string path = coverdir + http::url_escape(key) + ".png";
     if (!url.empty()) {
@@ -523,6 +602,11 @@ namespace confighttp {
     outputTree.put("path", path);
   }
 
+  /**
+   * @brief Get the configuration settings.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   getConfig(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -541,13 +625,49 @@ namespace confighttp {
     outputTree.put("platform", SUNSHINE_PLATFORM);
     outputTree.put("version", PROJECT_VER);
 
-    auto vars = config::parse_config(read_file(config::sunshine.config_file.c_str()));
+    auto vars = config::parse_config(file_handler::read_file(config::sunshine.config_file.c_str()));
 
     for (auto &[name, value] : vars) {
       outputTree.put(std::move(name), std::move(value));
     }
   }
 
+  /**
+   * @brief Get the locale setting. This endpoint does not require authentication.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
+  void
+  getLocale(resp_https_t response, req_https_t request) {
+    // we need to return the locale whether authenticated or not
+
+    print_req(request);
+
+    pt::ptree outputTree;
+    auto g = util::fail_guard([&]() {
+      std::ostringstream data;
+
+      pt::write_json(data, outputTree);
+      response->write(data.str());
+    });
+
+    outputTree.put("status", "true");
+    outputTree.put("locale", config::sunshine.locale);
+  }
+
+  /**
+   * @brief Save the configuration settings.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "key": "value"
+   * }
+   * @endcode
+   *
+   * @attention{It is recommended to ONLY save the config settings that differ from the default behavior.}
+   */
   void
   saveConfig(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -568,13 +688,13 @@ namespace confighttp {
     try {
       // TODO: Input Validation
       pt::read_json(ss, inputTree);
-      for (const auto &kv : inputTree) {
-        std::string value = inputTree.get<std::string>(kv.first);
+      for (const auto &[k, v] : inputTree) {
+        std::string value = inputTree.get<std::string>(k);
         if (value.length() == 0 || value.compare("null") == 0) continue;
 
-        configStream << kv.first << " = " << value << std::endl;
+        configStream << k << " = " << value << std::endl;
       }
-      write_file(config::sunshine.config_file.c_str(), configStream.str());
+      file_handler::write_file(config::sunshine.config_file.c_str(), configStream.str());
     }
     catch (std::exception &e) {
       BOOST_LOG(warning) << "SaveConfig: "sv << e.what();
@@ -584,6 +704,11 @@ namespace confighttp {
     }
   }
 
+  /**
+   * @brief Restart Sunshine.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   restart(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -594,6 +719,21 @@ namespace confighttp {
     platf::restart();
   }
 
+  /**
+   * @brief Update existing credentials.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "currentUsername": "Current Username",
+   *   "currentPassword": "Current Password",
+   *   "newUsername": "New Username",
+   *   "newPassword": "New Password",
+   *   "confirmNewPassword": "Confirm New Password"
+   * }
+   * @endcode
+   */
   void
   savePassword(resp_https_t response, req_https_t request) {
     if (!config::sunshine.username.empty() && !authenticate(response, request)) return;
@@ -652,6 +792,18 @@ namespace confighttp {
     }
   }
 
+  /**
+   * @brief Send a pin code to the host. The pin is generated from the Moonlight client during the pairing process.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "pin": "<pin>",
+   *   "name": "Friendly Client Name"
+   * }
+   * @endcode
+   */
   void
   savePin(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -673,7 +825,8 @@ namespace confighttp {
       // TODO: Input Validation
       pt::read_json(ss, inputTree);
       std::string pin = inputTree.get<std::string>("pin");
-      outputTree.put("status", nvhttp::pin(pin));
+      std::string name = inputTree.get<std::string>("name");
+      outputTree.put("status", nvhttp::pin(pin, name));
     }
     catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePin: "sv << e.what();
@@ -683,6 +836,11 @@ namespace confighttp {
     }
   }
 
+  /**
+   * @brief Unpair all clients.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   unpairAll(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -697,9 +855,84 @@ namespace confighttp {
       response->write(data.str());
     });
     nvhttp::erase_all_clients();
+    proc::proc.terminate();
     outputTree.put("status", true);
   }
 
+  /**
+   * @brief Unpair a client.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *  "uuid": "<uuid>"
+   * }
+   * @endcode
+   */
+  void
+  unpair(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) return;
+
+    print_req(request);
+
+    std::stringstream ss;
+    ss << request->content.rdbuf();
+
+    pt::ptree inputTree, outputTree;
+
+    auto g = util::fail_guard([&]() {
+      std::ostringstream data;
+      pt::write_json(data, outputTree);
+      response->write(data.str());
+    });
+
+    try {
+      // TODO: Input Validation
+      pt::read_json(ss, inputTree);
+      std::string uuid = inputTree.get<std::string>("uuid");
+      outputTree.put("status", nvhttp::unpair_client(uuid));
+    }
+    catch (std::exception &e) {
+      BOOST_LOG(warning) << "Unpair: "sv << e.what();
+      outputTree.put("status", false);
+      outputTree.put("error", e.what());
+      return;
+    }
+  }
+
+  /**
+   * @brief Get the list of paired clients.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
+  void
+  listClients(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) return;
+
+    print_req(request);
+
+    pt::ptree named_certs = nvhttp::get_all_clients();
+
+    pt::ptree outputTree;
+
+    outputTree.put("status", false);
+
+    auto g = util::fail_guard([&]() {
+      std::ostringstream data;
+      pt::write_json(data, outputTree);
+      response->write(data.str());
+    });
+
+    outputTree.add_child("named_certs", named_certs);
+    outputTree.put("status", true);
+  }
+
+  /**
+   * @brief Close the currently running application.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   */
   void
   closeApp(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
@@ -722,7 +955,7 @@ namespace confighttp {
   start() {
     auto shutdown_event = mail::man->event<bool>(mail::shutdown);
 
-    auto port_https = map_port(PORT_HTTPS);
+    auto port_https = net::map_port(PORT_HTTPS);
     auto address_family = net::af_from_enum_string(config::sunshine.address_family);
 
     https_server_t server { config::nvhttp.cert, config::nvhttp.pkey };
@@ -741,10 +974,13 @@ namespace confighttp {
     server.resource["^/api/apps$"]["POST"] = saveApp;
     server.resource["^/api/config$"]["GET"] = getConfig;
     server.resource["^/api/config$"]["POST"] = saveConfig;
+    server.resource["^/api/configLocale$"]["GET"] = getLocale;
     server.resource["^/api/restart$"]["POST"] = restart;
     server.resource["^/api/password$"]["POST"] = savePassword;
     server.resource["^/api/apps/([0-9]+)$"]["DELETE"] = deleteApp;
-    server.resource["^/api/clients/unpair$"]["POST"] = unpairAll;
+    server.resource["^/api/clients/unpair-all$"]["POST"] = unpairAll;
+    server.resource["^/api/clients/list$"]["GET"] = listClients;
+    server.resource["^/api/clients/unpair$"]["POST"] = unpair;
     server.resource["^/api/apps/close$"]["POST"] = closeApp;
     server.resource["^/api/covers/upload$"]["POST"] = uploadCover;
     server.resource["^/images/sunshine.ico$"]["GET"] = getFaviconImage;

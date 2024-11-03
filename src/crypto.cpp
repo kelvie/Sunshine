@@ -1,9 +1,10 @@
 /**
  * @file src/crypto.cpp
- * @brief todo
+ * @brief Definitions for cryptography functions.
  */
 #include "crypto.h"
 #include <openssl/pem.h>
+#include <openssl/rsa.h>
 
 namespace crypto {
   using asn1_string_t = util::safe_ptr<ASN1_STRING, ASN1_STRING_free>;
@@ -17,6 +18,10 @@ namespace crypto {
     X509_STORE_add_cert(x509_store.get(), cert.get());
     _certs.emplace_back(std::make_pair(std::move(cert), std::move(x509_store)));
   }
+  void
+  cert_chain_t::clear() {
+    _certs.clear();
+  }
 
   static int
   openssl_verify_cb(int ok, X509_STORE_CTX *ctx) {
@@ -26,7 +31,7 @@ namespace crypto {
       // Expired or not-yet-valid certificates are fine. Sometimes Moonlight is running on embedded devices
       // that don't have accurate clocks (or haven't yet synchronized by the time Moonlight first runs).
       // This behavior also matches what GeForce Experience does.
-      // FIXME: Checking for X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY is a temporary workaround to get moonlight-embedded to work on the raspberry pi
+      // TODO: Checking for X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY is a temporary workaround to get moonlight-embedded to work on the raspberry pi
       case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
       case X509_V_ERR_CERT_NOT_YET_VALID:
       case X509_V_ERR_CERT_HAS_EXPIRED:
@@ -38,11 +43,14 @@ namespace crypto {
   }
 
   /**
+   * @brief Verify the certificate chain.
    * When certificates from two or more instances of Moonlight have been added to x509_store_t,
    * only one of them will be verified by X509_verify_cert, resulting in only a single instance of
    * Moonlight to be able to use Sunshine
    *
    * To circumvent this, x509_store_t instance will be created for each instance of the certificates.
+   * @param cert The certificate to verify.
+   * @return nullptr if the certificate is valid, otherwise an error string.
    */
   const char *
   cert_chain_t::verify(x509_t::element_type *cert) {
@@ -172,8 +180,13 @@ namespace crypto {
       return 0;
     }
 
+    /**
+     * This function encrypts the given plaintext using the AES key in GCM mode. The initialization vector (IV) is also provided.
+     * The function handles the creation and initialization of the encryption context, and manages the encryption process.
+     * The resulting ciphertext and the GCM tag are written into the tagged_cipher buffer.
+     */
     int
-    gcm_t::encrypt(const std::string_view &plaintext, std::uint8_t *tagged_cipher, aes_t *iv) {
+    gcm_t::encrypt(const std::string_view &plaintext, std::uint8_t *tag, std::uint8_t *ciphertext, aes_t *iv) {
       if (!encrypt_ctx && init_encrypt_gcm(encrypt_ctx, &key, iv, padding)) {
         return -1;
       }
@@ -184,18 +197,15 @@ namespace crypto {
         return -1;
       }
 
-      auto tag = tagged_cipher;
-      auto cipher = tag + tag_size;
-
       int update_outlen, final_outlen;
 
       // Encrypt into the caller's buffer
-      if (EVP_EncryptUpdate(encrypt_ctx.get(), cipher, &update_outlen, (const std::uint8_t *) plaintext.data(), plaintext.size()) != 1) {
+      if (EVP_EncryptUpdate(encrypt_ctx.get(), ciphertext, &update_outlen, (const std::uint8_t *) plaintext.data(), plaintext.size()) != 1) {
         return -1;
       }
 
       // GCM encryption won't ever fill ciphertext here but we have to call it anyway
-      if (EVP_EncryptFinal_ex(encrypt_ctx.get(), cipher + update_outlen, &final_outlen) != 1) {
+      if (EVP_EncryptFinal_ex(encrypt_ctx.get(), ciphertext + update_outlen, &final_outlen) != 1) {
         return -1;
       }
 
@@ -204,6 +214,12 @@ namespace crypto {
       }
 
       return update_outlen + final_outlen;
+    }
+
+    int
+    gcm_t::encrypt(const std::string_view &plaintext, std::uint8_t *tagged_cipher, aes_t *iv) {
+      // This overload handles the common case of [GCM tag][cipher text] buffer layout
+      return encrypt(plaintext, tagged_cipher, tagged_cipher + tag_size, iv);
     }
 
     int
@@ -263,6 +279,11 @@ namespace crypto {
       return 0;
     }
 
+    /**
+     * This function encrypts the given plaintext using the AES key in CBC mode. The initialization vector (IV) is also provided.
+     * The function handles the creation and initialization of the encryption context, and manages the encryption process.
+     * The resulting ciphertext is written into the cipher buffer.
+     */
     int
     cbc_t::encrypt(const std::string_view &plaintext, std::uint8_t *cipher, aes_t *iv) {
       if (!encrypt_ctx && init_encrypt_cbc(encrypt_ctx, &key, iv, padding)) {

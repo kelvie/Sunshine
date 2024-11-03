@@ -1,6 +1,6 @@
 /**
  * @file src/system_tray.cpp
- * @brief todo
+ * @brief Definitions for the system tray icon and notification system.
  */
 // macros
 #if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
@@ -31,71 +31,45 @@
   #include <string>
 
   // lib includes
-  #include "tray/tray.h"
+  #include "tray/src/tray.h"
   #include <boost/filesystem.hpp>
-  #include <boost/process/environment.hpp>
+  #include <boost/process/v1/environment.hpp>
 
   // local includes
   #include "confighttp.h"
-  #include "main.h"
+  #include "logging.h"
   #include "platform/common.h"
   #include "process.h"
+  #include "src/entry_handler.h"
   #include "version.h"
 
 using namespace std::literals;
 
 // system_tray namespace
 namespace system_tray {
-  /**
-   * @brief Callback for opening the UI from the system tray.
-   * @param item The tray menu item.
-   */
+  static std::atomic<bool> tray_initialized = false;
+
   void
   tray_open_ui_cb(struct tray_menu *item) {
     BOOST_LOG(info) << "Opening UI from system tray"sv;
     launch_ui();
   }
 
-  /**
-   * @brief Callback for opening GitHub Sponsors from the system tray.
-   * @param item The tray menu item.
-   */
   void
   tray_donate_github_cb(struct tray_menu *item) {
     platf::open_url("https://github.com/sponsors/LizardByte");
   }
 
-  /**
-   * @brief Callback for opening MEE6 donation from the system tray.
-   * @param item The tray menu item.
-   */
-  void
-  tray_donate_mee6_cb(struct tray_menu *item) {
-    platf::open_url("https://mee6.xyz/m/804382334370578482");
-  }
-
-  /**
-   * @brief Callback for opening Patreon from the system tray.
-   * @param item The tray menu item.
-   */
   void
   tray_donate_patreon_cb(struct tray_menu *item) {
     platf::open_url("https://www.patreon.com/LizardByte");
   }
 
-  /**
-   * @brief Callback for opening PayPal donation from the system tray.
-   * @param item The tray menu item.
-   */
   void
   tray_donate_paypal_cb(struct tray_menu *item) {
     platf::open_url("https://www.paypal.com/paypalme/ReenigneArcher");
   }
 
-  /**
-   * @brief Callback for restarting Sunshine from the system tray.
-   * @param item The tray menu item.
-   */
   void
   tray_restart_cb(struct tray_menu *item) {
     BOOST_LOG(info) << "Restarting from system tray"sv;
@@ -103,10 +77,6 @@ namespace system_tray {
     platf::restart();
   }
 
-  /**
-   * @brief Callback for exiting Sunshine from the system tray.
-   * @param item The tray menu item.
-   */
   void
   tray_quit_cb(struct tray_menu *item) {
     BOOST_LOG(info) << "Quitting from system tray"sv;
@@ -136,7 +106,6 @@ namespace system_tray {
           .submenu =
             (struct tray_menu[]) {
               { .text = "GitHub Sponsors", .cb = tray_donate_github_cb },
-              { .text = "MEE6", .cb = tray_donate_mee6_cb },
               { .text = "Patreon", .cb = tray_donate_patreon_cb },
               { .text = "PayPal", .cb = tray_donate_paypal_cb },
               { .text = nullptr } } },
@@ -144,13 +113,10 @@ namespace system_tray {
         { .text = "Restart", .cb = tray_restart_cb },
         { .text = "Quit", .cb = tray_quit_cb },
         { .text = nullptr } },
+    .iconPathCount = 4,
+    .allIconPaths = { TRAY_ICON, TRAY_ICON_LOCKED, TRAY_ICON_PLAYING, TRAY_ICON_PAUSING },
   };
 
-  /**
-   * @brief Create the system tray.
-   * @details This function has an endless loop, so it should be run in a separate thread.
-   * @return 1 if the system tray failed to create, otherwise 0 once the tray has been terminated.
-   */
   int
   system_tray() {
   #ifdef _WIN32
@@ -236,6 +202,7 @@ namespace system_tray {
       BOOST_LOG(info) << "System tray created"sv;
     }
 
+    tray_initialized = true;
     while (tray_loop(1) == 0) {
       BOOST_LOG(debug) << "System tray loop"sv;
     }
@@ -243,10 +210,6 @@ namespace system_tray {
     return 0;
   }
 
-  /**
-   * @brief Run the system tray with platform specific options.
-   * @note macOS requires that UI elements be created on the main thread, so the system tray is not currently implemented for macOS.
-   */
   void
   run_tray() {
     // create the system tray
@@ -266,22 +229,19 @@ namespace system_tray {
   #endif
   }
 
-  /**
-   * @brief Exit the system tray.
-   * @return 0 after exiting the system tray.
-   */
   int
   end_tray() {
+    tray_initialized = false;
     tray_exit();
     return 0;
   }
 
-  /**
-   * @brief Sets the tray icon in playing mode and spawns the appropriate notification
-   * @param app_name The started application name
-   */
   void
   update_tray_playing(std::string app_name) {
+    if (!tray_initialized) {
+      return;
+    }
+
     tray.notification_title = NULL;
     tray.notification_text = NULL;
     tray.notification_cb = NULL;
@@ -298,12 +258,12 @@ namespace system_tray {
     tray_update(&tray);
   }
 
-  /**
-   * @brief Sets the tray icon in pausing mode (stream stopped but app running) and spawns the appropriate notification
-   * @param app_name The paused application name
-   */
   void
   update_tray_pausing(std::string app_name) {
+    if (!tray_initialized) {
+      return;
+    }
+
     tray.notification_title = NULL;
     tray.notification_text = NULL;
     tray.notification_cb = NULL;
@@ -320,12 +280,12 @@ namespace system_tray {
     tray_update(&tray);
   }
 
-  /**
-   * @brief Sets the tray icon in stopped mode (app and stream stopped) and spawns the appropriate notification
-   * @param app_name The started application name
-   */
   void
   update_tray_stopped(std::string app_name) {
+    if (!tray_initialized) {
+      return;
+    }
+
     tray.notification_title = NULL;
     tray.notification_text = NULL;
     tray.notification_cb = NULL;
@@ -342,11 +302,12 @@ namespace system_tray {
     tray_update(&tray);
   }
 
-  /**
-   * @brief Spawns a notification for PIN Pairing. Clicking it opens the PIN Web UI Page
-   */
   void
   update_tray_require_pin() {
+    if (!tray_initialized) {
+      return;
+    }
+
     tray.notification_title = NULL;
     tray.notification_text = NULL;
     tray.notification_cb = NULL;
